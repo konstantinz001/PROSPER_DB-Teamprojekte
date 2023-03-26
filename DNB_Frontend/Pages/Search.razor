@@ -1,0 +1,1475 @@
+﻿@page "/search"
+
+@using ClassLibrary.Processor;
+@using ClassLibrary.Model;
+@using ClassLibrary;
+@using GemBox.Spreadsheet;
+@using System.IO;
+@using System.IO.Compression;
+@using Newtonsoft.Json;
+
+@inject ISqlExecutor _db
+@inject IJSRuntime JSRuntime
+
+<Layout>
+    @if (loading)
+    {
+        <LoadingComponent></LoadingComponent>
+    }
+    else
+    {
+        <LayoutContent>
+            <Jumbotron Style="background-color:#334152; border-radius:30px; color:white" Margin="Margin.Is4.FromBottom">
+                <JumbotronTitle Size="JumbotronTitleSize.Is4" Style="font-weight:bold">PROSPER-DB</JumbotronTitle>
+                <Divider></Divider>
+            </Jumbotron>
+
+            <Card Style="padding: 20px;border-radius:30px">
+                <CardHeader Style="background-color:#334152; color:white; font-weight:bold; border-radius:30px">Suche</CardHeader>
+                <CardBody>
+                    @if (vollTextCounter >= 1)
+                    {
+                        <Field Horizontal>
+                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche*</FieldLabel>
+                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                                <TextEdit @onkeydown="keySearch" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString1" />
+                            </FieldBody>
+                            @if (vollTextCounter == 1)
+                            {
+                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                    <Button Clicked="@(() => OnVollTextAdd())"><Icon Name="IconName.Add"></Icon></Button>
+                                </FieldBody>
+                            }
+                            else
+                            {
+                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                    <Button Clicked="@(() => OnVollTextRemove())"><Icon Name="IconName.Remove"></Icon></Button>
+                                </FieldBody>
+                            }
+                        </Field>
+                    }
+                    @if (vollTextCounter >= 2)
+                    {
+                        <Field Horizontal>
+                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche*</FieldLabel>
+                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                <TextEdit @onkeydown="keySearch" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString2" />
+                            </FieldBody>
+                            @if (vollTextCounter == 2)
+                            {
+                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                    <Button Clicked="@(() => OnVollTextAdd())"><Icon Name="IconName.Add"></Icon></Button>
+                                </FieldBody>
+                            }
+                        </Field>
+                    }
+                    @if (vollTextCounter >= 3)
+                    {
+                        <Field Horizontal>
+                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche*</FieldLabel>
+                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                <TextEdit @onkeydown="keySearch" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString3" />
+                            </FieldBody>
+                        </Field>
+                    }
+                    <Field Horizontal>
+                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Suche nach Ort*</FieldLabel>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                            <TextEdit @onkeydown="keySearch" Style="border-radius:30px;" Placeholder="Suche nach Ort" @bind-Text="volltextSuchStringOrt" />
+                        </FieldBody>
+                    </Field>
+
+                    <Field Horizontal>
+                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Erscheinungsjahre</FieldLabel>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                            <NumericPicker @onkeydown="keyEnter" Style="border-radius:30px;" @bind-Value="@selectedReleaseStart" Min="@releaseStart" Max="@releaseEnd" />
+                        </FieldBody>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                            <NumericPicker @onkeydown="keyEnter" Style="border-radius:30px;" @bind-Value="@selectedReleaseEnd" Min="@releaseStart" Max="@releaseEnd" />
+                        </FieldBody>
+                    </Field>
+                    <Field Horizontal>
+                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Sachgruppen*</FieldLabel>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is10.OnDesktop">
+                            <Select MaxVisibleItems=14 TValue="string" Multiple Style="border-radius:30px">
+                                <SelectItem @onkeydown="keyEnter" Style="border-radius:30px; margin-top:5px" Value="@("")"></SelectItem>
+                                @foreach (var fakultät in fakultäten)
+                                {
+                                    <SelectGroup Label="@fakultät.FakultätenName">
+                                        @foreach (var fachrichtung in fakultät.FachrichtungList)
+                                        {
+                                            <SelectItem @onkeydown="keyEnter" Style="border-radius:30px" @onclick="@(()=>OnClickedSachgruppe(fachrichtung.FachrichtungsName, fachrichtung.SachgruppeList))" Value="@fachrichtung.FachrichtungsName">@fachrichtung.FachrichtungsName</SelectItem>
+                                        }
+                                    </SelectGroup>
+                                }
+                            </Select>
+                        </FieldBody>
+                    </Field>
+                    @if (sachgruppenMitFachrichtungen != null)
+                    {
+                        <Field>
+                            <Buttons>
+                                @foreach (var fachrichtung in sachgruppenMitFachrichtungen)
+                                {
+                                    <button class="button-sgt" @onmouseover="@(()=> OnChangeRemoveSgtVisibility())" @onmouseout="@(()=> OnChangeRemoveSgtVisibility())" @onclick="@(()=>removeFachrichtung(fachrichtung))"><Span Visibility="@removeSgtVisibility"> &nbsp<Icon Name="IconName.Remove"></Icon> |</Span><Span>@(fachrichtung.FachrichtungsName) &nbsp; &nbsp; </Span></button>
+                                }
+                            </Buttons>
+                        </Field>
+                    }
+                </CardBody>
+                <Fields>
+                    <Field Style="margin-bottom:3%; margin-right:1%; height:52px; width:52px" Flex="Flex.JustifyContent.End">
+                        <button class="button-load" @onclick="@LoadData"><Icon Name="IconName.Eye" /></button>
+                    </Field>
+                </Fields>
+            </Card>
+
+
+            @if (modalRef is not null)
+            {
+                <Modal @ref="modalRef" Style="border-radius:30px;" Closed="@(()=> Delete())">
+                    <ModalContent Centered Size="ModalSize.Fullscreen" Overflow="Overflow.Auto" Scrollable="true">
+                        <ModalHeader>
+                            <ModalTitle>Suchergebnisse</ModalTitle>
+                            <CloseButton Clicked="Delete" />
+                        </ModalHeader>
+
+                        <ModalBody>
+                            @if (loadingModal == true)
+                            {
+                                <LoadingComponent></LoadingComponent>
+                            }
+                            else
+                            {
+                                @if (dataShow!.Count != 0)
+                                {
+                                    <Fields Style="margin-bottom:3%">
+                                        <Field>
+                                            @if (skipData + 100 < resultCounter)
+                                            {
+                                                <AlertMessage Flex="Flex.JustifyContent.Start" Style="color:#000">
+                                                    Position: @skipData  -  @(skipData + 100)
+                                                </AlertMessage>
+                                            }
+                                            else
+                                            {
+                                                <AlertMessage Flex="Flex.JustifyContent.Start" Style="color:#000">
+                                                    Position: @skipData  -  @resultCounter
+                                                </AlertMessage>
+                                            }
+                                            <AlertMessage Flex="Flex.JustifyContent.Start" Style="color:#000">
+                                                Gesamtergebnisse: @resultCounter
+                                            </AlertMessage>
+                                        </Field>
+                                        @if (hinzufuegenXLSX)
+                                        {
+                                            <Field Flex="Flex.JustifyContent.End">
+                                                <button class="button-generateXLSX" @onclick="@generateExcel"><Icon Name="IconName.FileUpload" /> Zum Download hinzufügen</button>
+                                            </Field>
+                                        }
+                                    </Fields>
+                                    @if (vollTextCounter >= 1)
+                                    {
+                                        <Field Horizontal>
+                                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche</FieldLabel>
+                                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                                <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString1" />
+                                            </FieldBody>
+                                            @if (vollTextCounter == 1)
+                                            {
+                                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                                    <Button Clicked="@(() => OnVollTextAdd())"><Icon Name="IconName.Add"></Icon></Button>
+                                                </FieldBody>
+                                            }
+                                            else
+                                            {
+                                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                                    <Button Clicked="@(() => OnVollTextRemove())"><Icon Name="IconName.Remove"></Icon></Button>
+                                                </FieldBody>
+                                            }
+                                        </Field>
+                                    }
+                                    @if (vollTextCounter >= 2)
+                                    {
+                                        <Field Horizontal>
+                                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche</FieldLabel>
+                                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                                <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString2" />
+                                            </FieldBody>
+                                            @if (vollTextCounter == 2)
+                                            {
+                                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                                    <Button Clicked="@(() => OnVollTextAdd())"><Icon Name="IconName.Add"></Icon></Button>
+                                                </FieldBody>
+                                            }
+                                        </Field>
+                                    }
+                                    @if (vollTextCounter >= 3)
+                                    {
+                                        <Field Horizontal>
+                                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche</FieldLabel>
+                                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                                <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString3" />
+                                            </FieldBody>
+                                        </Field>
+                                    }
+
+                                    <Field Horizontal>
+                                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Suche nach Ort*</FieldLabel>
+                                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                                            <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Ort" @bind-Text="volltextSuchStringOrt" />
+                                        </FieldBody>
+                                    </Field>
+
+                                    <Field Horizontal>
+                                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Erscheinungsjahre</FieldLabel>
+                                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                                            <NumericPicker Style="border-radius:30px;" @bind-Value="@selectedReleaseStart" Min="@releaseStart" Max="@releaseEnd" Disabled />
+                                        </FieldBody>
+                                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                                            <NumericPicker Style="border-radius:30px;" @bind-Value="@selectedReleaseEnd" Min="@releaseStart" Max="@releaseEnd" Disabled />
+                                        </FieldBody>
+                                    </Field>
+                                    @if (sachgruppenMitFachrichtungen != null)
+                                    {
+                                        <Field>
+                                            <Buttons>
+                                                @foreach (var fachrichtung in sachgruppenMitFachrichtungen)
+                                                {
+                                                    <button class="button-sgt-AfterSearch"><Span>@(fachrichtung.FachrichtungsName) &nbsp; &nbsp; </Span></button>
+                                                }
+                                            </Buttons>
+                                        </Field>
+                                    }
+
+                                    <Fields>
+                                        @if (guids.Count != 0)
+                                        {
+                                            <Field Flex="Flex.JustifyContent.Start">
+                                                <button class="button-generateXLSX" @onclick="@generateZip"><Icon Name="IconName.Download" /> Download</button>
+                                            </Field>
+                                        }
+                                        else
+                                        {
+                                            <Field Flex="Flex.JustifyContent.Start">
+                                                <button class="button-generateXLSXDisabled" disabled><Icon Name="IconName.Download" /> Download</button>
+                                            </Field>
+                                        }
+
+                                        <Field Style="margin-bottom:3%; margin-right:1%; height:52px; width:52px" Flex="Flex.JustifyContent.End">
+                                            <button class="button-load" @onclick="@LoadData"><Icon Name="IconName.Search" /></button>
+                                            @*<Button Size="Size.Medium" Style="border-radius:50%; box-shadow:0 8px 16px 0 rgba(0,0,0,0.2), 0 6px 20px 0 rgba(0,0,0,0.19)" Color="Color.Primary" Clicked="@(args => OnSearchShow())"><Icon Name="IconName.Search" /></Button>
+                            *@
+                                        </Field>
+                                    </Fields>
+                                    <Table Hoverable Style="border-radius:30px">
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHeaderCell Clicked="@OnSortierungCHECKED_Changed">
+                                                    <Icon Name="IconName.Heart" />
+                                                    @if (checkedSortierung == true)
+                                                    {
+                                                        <Icon Name="IconName.SortUp" />
+                                                    }
+                                                    else if (checkedSortierung == false)
+                                                    {
+                                                        <Icon Name="IconName.SortDown" />
+                                                    }
+                                                </TableHeaderCell>
+                                                <TableHeaderCell Clicked="@OnSortierungGESCHLECHT_Changed">
+                                                    GENDER
+                                                    @if (genderSortierung == "male")
+                                                    {
+                                                        <i style="color:blue" class="fa fa-mars"></i>
+                                                    }
+                                                    else if (genderSortierung == "female")
+                                                    {
+                                                        <i style="color:deeppink" class="fa fa-venus"></i>
+                                                    }
+                                                    else if (genderSortierung == "none")
+                                                    {
+                                                        <i style="color:green" class="fa fa-intersex"></i>
+                                                    }
+                                                    else
+                                                    {
+                                                        <i style="width:2%"></i>
+                                                    }
+                                                </TableHeaderCell>
+                                                <TableHeaderCell Clicked="@OnSortierungCREATOR_Changed">
+                                                    AUTOR
+                                                    @if (creatorSortierung == true)
+                                                    {
+                                                        <Icon Name="IconName.SortUp" />
+                                                    }
+                                                    else if (creatorSortierung == false)
+                                                    {
+                                                        <Icon Name="IconName.SortDown" />
+                                                    }
+                                                </TableHeaderCell>
+                                                <TableHeaderCell Width="Width.Is50" Clicked="@OnSortierungTITLE_Changed">
+                                                    <Icon Name="IconName.Link"></Icon> TITEL
+                                                    @if (titleSortierung == true)
+                                                    {
+                                                        <Icon Name="IconName.SortUp" />
+                                                    }
+                                                    else if (titleSortierung == false)
+                                                    {
+                                                        <Icon Name="IconName.SortDown" />
+                                                    }
+                                                </TableHeaderCell>
+                                                <TableHeaderCell Clicked="@OnSortierungORT_Changed">
+                                                    PUBLIKATIONSORT
+                                                    @if (ortSortierung == true)
+                                                    {
+                                                        <Icon Name="IconName.SortUp" />
+                                                    }
+                                                    else if (ortSortierung == false)
+                                                    {
+                                                        <Icon Name="IconName.SortDown" />
+                                                    }
+                                                </TableHeaderCell>
+                                                <TableHeaderCell Clicked="@OnSortierungYEAR_Changed">
+                                                    ERSCHEINUNGSJAHR
+                                                    @if (yearSortierung == true)
+                                                    {
+                                                        <Icon Name="IconName.SortUp" />
+                                                    }
+                                                    else if (yearSortierung == false)
+                                                    {
+                                                        <Icon Name="IconName.SortDown" />
+                                                    }
+                                                </TableHeaderCell>
+                                                <TableHeaderCell>
+
+                                                </TableHeaderCell>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            @foreach (var item in dataShow)
+                                            {
+                                                <TableRow>
+                                                    <TableHeaderCell>
+                                                        <Check TValue="bool" Checked="@item.CHECKED" CheckedChanged="@(()=>OnCheckedFavoritenChanged(item))">
+                                                        </Check>
+                                                    </TableHeaderCell>
+
+
+                                                    <TableHeaderCell>
+                                                        @if (item.GESCHLECHT == "male")
+                                                        {
+                                                            <i style="color:blue" class="fa fa-mars"></i>
+                                                        }
+                                                        else if (item.GESCHLECHT == "female")
+                                                        {
+                                                            <i style="color:deeppink" class="fa fa-venus"></i>
+                                                        }
+                                                        else
+                                                        {
+                                                            <i style="color:green" class="fa fa-intersex"></i>
+                                                        }
+                                                    </TableHeaderCell>
+
+
+
+                                                    <TableHeaderCell>
+                                                        @if (!string.IsNullOrEmpty(item.CREATOR))
+                                                        {
+                                                            if (item.CREATOR.Contains(','))
+                                                            {
+                                                                var vorname = item.CREATOR.Split(",")[1].Trim().Split(" ")[0];
+                                                                var nachname = item.CREATOR.Split(',')[0];
+                                                                <a href="@("https://www.linkedin.com/search/results/people/?&geoUrn=%5B%22106693272%22%2C%22101282230%22%5D&lastName=" + nachname + "&firstName=" + vorname)" target="_blank" style="color:black">@item.CREATOR</a>
+                                                            }
+                                                            else if (item.CREATOR.Contains(" "))
+                                                            {
+                                                                var vorname = item.CREATOR.Split(" ")[1];
+                                                                var nachname = item.CREATOR.Split(',')[0];
+                                                                <a href="@("https://www.linkedin.com/search/results/people/?&geoUrn=%5B%22106693272%22%2C%22101282230%22%5D&lastName=" + nachname + "&firstName=" + vorname)" target="_blank" style="color:black">@item.CREATOR</a>
+                                                            }
+                                                            else
+                                                            {
+                                                                <a href="@("https://www.linkedin.com/search/results/people/?&geoUrn=%5B%22106693272%22%2C%22101282230%22%5D&firstName=" + item.CREATOR)" target="_blank" style="color:black">@item.CREATOR</a>
+                                                            }
+                                                        }
+                                                    </TableHeaderCell>
+
+                                                    <TableHeaderCell>
+                                                        @if (!string.IsNullOrEmpty(item.LINK))
+                                                        {
+                                                            <a href="@(item.LINK)" target="_blank" style="color:black">@item.TITLE</a>
+                                                        }
+                                                        else
+                                                        {
+                                                            <a href="@("https://d-nb.info/" + item.DNB_IDN)" target="_blank" style="color:black">@item.TITLE</a>
+                                                        }
+                                                    </TableHeaderCell>
+
+                                                    <TableHeaderCell>
+                                                        @item.ORT
+                                                    </TableHeaderCell>
+
+                                                    <TableHeaderCell>
+                                                        @item.ERSCHEINUNGSJAHR
+                                                    </TableHeaderCell>
+
+                                                    <TableHeaderCell>
+                                                        @if (!string.IsNullOrEmpty(item.SACHGRUPPE))
+                                                        {
+                                                            sachgruppenToolTip = "";
+                                                            @foreach (var sachgruppe in item.SACHGRUPPE!.Split('|').ToList())
+                                                            {
+                                                                @foreach (var fachrichtung in fachrichtungenListe)
+                                                                {
+
+                                                                    if (fachrichtung.SachgruppeList.Exists(x => x.SachgruppenBezeichnung == sachgruppe))
+                                                                    {
+                                                                        sachgruppenToolTip += fachrichtung.FachrichtungsName + "<br>";
+                                                                    }
+
+                                                                }
+                                                            }
+                                                        }
+                                                        <Tooltip Text="@sachgruppenToolTip" Multiline Placement="TooltipPlacement.Top">
+                                                            <Icon Name="IconName.InfoCircle"></Icon>
+                                                        </Tooltip>
+                                                    </TableHeaderCell>
+                                                </TableRow>
+                                            }
+                                        </TableBody>
+                                    </Table>
+                                }
+                                else
+                                {
+                                    @if (vollTextCounter >= 1)
+                                    {
+                                        <Field Horizontal>
+                                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche</FieldLabel>
+                                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                                <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString1" />
+                                            </FieldBody>
+                                            @if (vollTextCounter == 1)
+                                            {
+                                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                                    <Button Clicked="@(() => OnVollTextAdd())"><Icon Name="IconName.Add"></Icon></Button>
+                                                </FieldBody>
+                                            }
+                                            else
+                                            {
+                                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                                    <Button Clicked="@(() => OnVollTextRemove())"><Icon Name="IconName.Remove"></Icon></Button>
+                                                </FieldBody>
+                                            }
+                                        </Field>
+                                    }
+                                    @if (vollTextCounter >= 2)
+                                    {
+                                        <Field Horizontal>
+                                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche</FieldLabel>
+                                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                                <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString2" />
+                                            </FieldBody>
+                                            @if (vollTextCounter == 2)
+                                            {
+                                                <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">
+                                                    <Button Clicked="@(() => OnVollTextAdd())"><Icon Name="IconName.Add"></Icon></Button>
+                                                </FieldBody>
+                                            }
+                                        </Field>
+                                    }
+                                    @if (vollTextCounter >= 3)
+                                    {
+                                        <Field Horizontal>
+                                            <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Volltextsuche</FieldLabel>
+                                            <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is7.OnDesktop">
+                                                <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Autor oder Titel" @bind-Text="volltextSuchString3" />
+                                            </FieldBody>
+                                        </Field>
+                                    }
+
+                                    <Field Horizontal>
+                                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Suche nach Ort*</FieldLabel>
+                                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                                            <TextEdit @onkeydown="keySearchAfterLoad" Style="border-radius:30px;" Placeholder="Suche nach Ort" @bind-Text="volltextSuchStringOrt" />
+                                        </FieldBody>
+                                    </Field>
+
+                                    <Field Horizontal>
+                                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Erscheinungsjahre</FieldLabel>
+                                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                                            <NumericPicker Style="border-radius:30px;" @bind-Value="@selectedReleaseStart" Min="@releaseStart" Max="@releaseEnd" Disabled />
+                                        </FieldBody>
+                                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                                            <NumericPicker Style="border-radius:30px;" @bind-Value="@selectedReleaseEnd" Min="@releaseStart" Max="@releaseEnd" Disabled />
+                                        </FieldBody>
+                                    </Field>
+                                    @if (sachgruppenMitFachrichtungen != null)
+                                    {
+                                        <Field>
+                                            <Buttons>
+                                                @foreach (var fachrichtung in sachgruppenMitFachrichtungen)
+                                                {
+                                                    <button class="button-sgt-AfterSearch"><Span>@(fachrichtung.FachrichtungsName) &nbsp; &nbsp; </Span></button>
+                                                }
+                                            </Buttons>
+                                        </Field>
+                                    }
+
+                                    <Fields>
+                                        <Field Style="margin-bottom:3%; margin-right:1%; height:52px; width:52px" Flex="Flex.JustifyContent.End">
+                                            <button class="button-load" @onclick="@LoadData"><Icon Name="IconName.Search" /></button>
+                                            @*<Button Size="Size.Medium" Style="border-radius:50%; box-shadow:0 8px 16px 0 rgba(0,0,0,0.2), 0 6px 20px 0 rgba(0,0,0,0.19)" Color="Color.Primary" Clicked="@(()=>OnSearchShow())"><Icon Name="IconName.Search" /></Button>
+                            *@
+                                        </Field>
+                                    </Fields>
+
+                                    <AlertMessage Flex="Flex.JustifyContent.Center" TextColor="TextColor.Info">
+                                        Es konnten leider keine Ergebnisse gefunden werden.
+                                    </AlertMessage>
+                                    skipData = 0;
+                                }
+                            }
+                        </ModalBody>
+
+                        <ModalFooter>
+
+                            <Fields>
+                                @if ((dataShow.Count >= 100 && skipData >= 100) && !loadingModal)
+                                {
+                                    <Button Clicked="@(()=>OnSearchPrevious())"><Icon Name="IconName.AngleLeft" /> Vorherige Seite</Button>
+                                    <Button Clicked="@(()=>OnSearchNext())">Nächste Seite <Icon Name="IconName.AngleRight" /></Button>
+                                    <Button Clicked="@(()=>OnRemoveFavClicked())" Position="Position.Absolute.Start.Is0"><Icon Name="IconName.Remove" /> Favoriten entfernen</Button>
+                                }
+                                else if ((dataShow.Count >= 100 && skipData < 100) && !loadingModal)
+                                {
+                                    <Button Visibility=Visibility.Invisible><Icon Name="IconName.AngleLeft" /> Vorherige Seite</Button>
+                                    <Button Clicked="@(()=>OnSearchNext())">Nächste Seite <Icon Name="IconName.AngleRight" /></Button>
+                                    <Button Clicked="@(()=>OnRemoveFavClicked())" Position="Position.Absolute.Start.Is0"><Icon Name="IconName.Remove" /> Favoriten entfernen</Button>
+                                }
+                                else if ((dataShow.Count < 100 && skipData >= 100) && !loadingModal)
+                                {
+                                    <Button Clicked="@(()=>OnSearchPrevious())"><Icon Name="IconName.AngleLeft" /> Vorherige Seite</Button>
+                                    <Button Visibility=Visibility.Invisible>Nächste Seite <Icon Name="IconName.AngleRight" /></Button>
+                                    <Button Clicked="@(()=>OnRemoveFavClicked())" Position="Position.Absolute.Start.Is0"><Icon Name="IconName.Remove" /> Favoriten entfernen</Button>
+                                }
+                                else if (!loadingModal)
+                                {
+                                    <Button Visibility=Visibility.Invisible><Icon Name="IconName.AngleLeft" /> Vorherige Seite</Button>
+                                    <Button Visibility=Visibility.Invisible>Nächste Seite <Icon Name="IconName.AngleRight" /></Button>
+                                    <Button Clicked="@(()=>OnRemoveFavClicked())" Position="Position.Absolute.Start.Is0"><Icon Name="IconName.Remove" /> Favoriten entfernen</Button>
+                                }
+                                else
+                                {
+                                    <Button Visibility=Visibility.Invisible><Icon Name="IconName.AngleLeft" /> Vorherige Seite</Button>
+                                    <Button Visibility=Visibility.Invisible>Nächste Seite <Icon Name="IconName.AngleRight" /></Button>
+                                    <Button Visibility=Visibility.Invisible Position="Position.Absolute.Start.Is0"><Icon Name="IconName.Remove" /> Favorieten entfernen</Button>
+                                }
+                            </Fields>
+
+                        </ModalFooter>
+                    </ModalContent>
+                </Modal>
+            }
+
+        </LayoutContent>
+        @*<LayoutFooter>
+    <Field Position="Position.Fixed.Bottom.Is0.End" Style="margin:35px">
+    <button class="button-load" @onclick="@LoadData"><Icon Name="IconName.Eye" /></button>
+    </Field>
+    </LayoutFooter>*@
+    }
+</Layout>
+
+
+
+
+
+
+
+
+@code {
+    private int test;
+
+    public string? volltextSuchStringOrt;
+    public string? volltextSuchString1;
+    public string? volltextSuchString2;
+    public string? volltextSuchString3;
+    public int vollTextCounter;
+    private bool hinzufuegenXLSX = true;
+    private bool loading = false;
+    private bool loadingModal = false;
+    private bool? creatorSortierung = null;
+    private bool? ortSortierung = null;
+    private bool? titleSortierung = null;
+    private bool? yearSortierung = null;
+    private bool? checkedSortierung = null;
+    private string? genderSortierung = null;
+    private string? sachgruppenToolTip = null;
+
+
+    private List<string> guids = new List<string>();
+
+    private List<DNB_Dataset> data = new List<DNB_Dataset>();
+    private List<DNB_Dataset> dataShow = new List<DNB_Dataset>();
+
+    private List<Fakultät> fakultäten = new List<Fakultät>();
+    private List<Fachrichtung> fachrichtungenListe = new List<Fachrichtung>();
+
+    private int skipData = 0;
+    private int resultCounter = 0;
+
+    private List<Fachrichtung> sachgruppenMitFachrichtungen = new List<Fachrichtung>();
+
+    private int selectedReleaseStartOld;
+    private int selectedReleaseEndOld;
+    private List<Fachrichtung> sachgruppenMitFachrichtungenOld = new List<Fachrichtung>();
+
+    public int releaseStart;
+    public int releaseEnd;
+    public int selectedReleaseStart;
+    public int selectedReleaseEnd;
+
+    private Modal? modalRef = new Modal();
+    private List<string> volltextSuchList = new List<string>();
+
+    private Visibility removeSgtVisibility = Visibility.Invisible;
+
+    protected override async Task OnInitializedAsync()
+    {
+        loading = true;
+        loadingModal = false;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        vollTextCounter = 1;
+        releaseEnd = _db.GetMaxJahr();
+        releaseStart = _db.GetMinJahr();
+        selectedReleaseStart = releaseStart;
+        selectedReleaseEnd = releaseEnd;
+        fakultäten = _db.GetFakultäten();
+        fakultäten = _db.GetFakultäten();
+        fachrichtungenListe = _db.getFachrichtungen();
+        for (int i = 0; i < 5; i++)
+            volltextSuchList.Add("");
+        loading = false;
+
+        string[] files = Directory.GetFiles(System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot", "Data"));
+
+        foreach (string file in files)
+        {
+            FileInfo fi = new FileInfo(file);
+            if (fi.LastAccessTime < DateTime.Now.AddDays(-1))
+                fi.Delete();
+        }
+    }
+
+
+    //// <summary>
+    ///
+    /// Methoden zum Implementieren der Logik für die Auswahl der Sachgruppen in der Suchmaske
+    ///
+    /// OnClickedSachgruppe für die Auswahl der einzelnen Sachgruppen (Hinzufügen)
+    /// RemoveFachrichtung für das Entfernen der Sachgruppe aus der Auswahl
+    /// OnChangeRemoveSgtVisibility Hilfsmethode um das RemoveIcon bei Hover anzuzeigen
+    ///
+    /// </summary>
+    void OnClickedSachgruppe(string fachrichtungsname, List<Sachgruppe> sgt)
+    {
+        if (fachrichtungsname != null || fachrichtungsname != "")
+        {
+            sachgruppenMitFachrichtungen.Add(new Fachrichtung
+                {
+                    FachrichtungsName = fachrichtungsname!,
+                    SachgruppeList = sgt
+                });
+
+            sachgruppenMitFachrichtungen = sachgruppenMitFachrichtungen.DistinctBy(f => f.FachrichtungsName).ToList();
+        }
+    }
+
+    private void removeFachrichtung(Fachrichtung fachrichtung)
+    {
+        sachgruppenMitFachrichtungen.Remove(fachrichtung);
+    }
+
+    private void OnChangeRemoveSgtVisibility()
+    {
+        if (removeSgtVisibility == Visibility.Visible)
+        {
+            removeSgtVisibility = Visibility.Invisible;
+        }
+        else
+        {
+            removeSgtVisibility = Visibility.Visible;
+        }
+    }
+    ///________________________________________________________________________________________________
+
+
+    //// <summary>
+    ///
+    /// Methden zum Hinzufügen und Entfernen der Suchfelder für die Volltextsuche
+    ///
+    /// OnVollTextAdd zum Hinzufügen eines Suchfeldes (Maximal 3)
+    /// OnVollTextRemove zum Entfernen eines Suchfeldes (Minimal 1)
+    ///
+    /// </summary>
+    void OnVollTextAdd()
+    {
+        if (vollTextCounter <= 3)
+            vollTextCounter++;
+    }
+
+    void OnVollTextRemove()
+    {
+        if (vollTextCounter > 1)
+            vollTextCounter--;
+        if (vollTextCounter == 2)
+            volltextSuchString3 = "";
+        if (vollTextCounter == 1)
+            volltextSuchString2 = "";
+    }
+    ///________________________________________________________________________________________________
+
+    //// <summary>
+    ///
+    /// Methode zum Laden der Daten
+    ///
+    /// </summary>
+    private async Task LoadData()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await modalRef!.Show();
+        await Task.Delay(1);
+        if (selectedReleaseEndOld != selectedReleaseEnd || selectedReleaseStartOld != selectedReleaseStart || sachgruppenMitFachrichtungenOld != sachgruppenMitFachrichtungen)
+        {
+            data.Clear();
+            for (int year = selectedReleaseStart; year <= selectedReleaseEnd; year++)
+            {
+                if (sachgruppenMitFachrichtungen.Count != 0)
+                {
+                    foreach (var fach in sachgruppenMitFachrichtungen)
+                    {
+                        foreach (var sgt in fach.SachgruppeList)
+                        {
+                            var tmp = _db.GetDNB_Dataset(year, sgt.SachgruppenBezeichnung);
+                            data = data.Concat(tmp).ToList();
+                        }
+                    }
+                }
+                else
+                {
+                    var tmp = _db.GetDNB_Dataset(year);
+                    data = data.Concat(tmp).ToList();
+                }
+
+
+            }
+            if (data.Count != 0)
+                await OnSearchShow();
+            sachgruppenMitFachrichtungenOld = sachgruppenMitFachrichtungenOld.ToList();
+            selectedReleaseEndOld = selectedReleaseEnd;
+            selectedReleaseStartOld = selectedReleaseStart;
+            sachgruppenMitFachrichtungenOld = new List<Fachrichtung>(sachgruppenMitFachrichtungen);
+            loadingModal = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+    ///________________________________________________________________________________________________
+
+
+    //// <summary>
+    ///
+    /// Methoden zum nachträglichen Filtern der geladenen Daten
+    ///
+    /// OnSearch implementiert dabei die Hauptfunktionalität
+    /// OnSearchShow ist die Hilfsmethode, welche LadeAnimation triggert,
+    /// Sowie für die Bestimmung der Richtigen Position der angezeigten Daten zuständig ist
+    ///
+    /// </summary>
+    private List<DNB_Dataset> OnSearch()
+    {
+        List<DNB_Dataset> dataTmp = new List<DNB_Dataset>();
+        if (!string.IsNullOrEmpty(volltextSuchString1) && !string.IsNullOrEmpty(volltextSuchString2) && !string.IsNullOrEmpty(volltextSuchString3))
+        {
+            dataTmp = data
+            .Where(x =>
+                x.TITLE!.Contains(" " + volltextSuchString1 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.StartsWith(volltextSuchString1 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.EndsWith(" " + volltextSuchString1, StringComparison.CurrentCultureIgnoreCase) ||
+                 x.TITLE!.Contains(volltextSuchString1) ||
+                x.CREATOR!.Contains(volltextSuchString1))
+            .Where(x =>
+                x.TITLE!.Contains(" " + volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.StartsWith(volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.EndsWith(" " + volltextSuchString2, StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.Contains(volltextSuchString2) ||
+                x.CREATOR!.Contains(volltextSuchString2))
+             .Where(x =>
+                x.TITLE!.Contains(" " + volltextSuchString3 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.StartsWith(volltextSuchString3 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.EndsWith(" " + volltextSuchString3, StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.Contains(volltextSuchString3) ||
+                x.CREATOR!.Contains(volltextSuchString3)).ToList();
+        }
+        else if (!string.IsNullOrEmpty(volltextSuchString1) && !string.IsNullOrEmpty(volltextSuchString2))
+        {
+            dataTmp = data
+            .Where(x => (
+                x.TITLE!.Contains(" " + volltextSuchString1 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.StartsWith(volltextSuchString1 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.EndsWith(" " + volltextSuchString1, StringComparison.CurrentCultureIgnoreCase)) ||
+                x.TITLE!.Contains(volltextSuchString1) ||
+                x.CREATOR!.Contains(volltextSuchString1))
+            .Where(x => (
+                x.TITLE!.Contains(" " + volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.StartsWith(volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.EndsWith(" " + volltextSuchString2, StringComparison.CurrentCultureIgnoreCase)) ||
+                x.TITLE!.Contains(volltextSuchString2) ||
+                x.CREATOR!.Contains(volltextSuchString2)).ToList();
+        }
+        else if (!string.IsNullOrEmpty(volltextSuchString2) && !string.IsNullOrEmpty(volltextSuchString3))
+        {
+            dataTmp = data
+            .Where(x => (
+                x.TITLE!.Contains(" " + volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.StartsWith(volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.EndsWith(" " + volltextSuchString2, StringComparison.CurrentCultureIgnoreCase)) ||
+                x.TITLE!.Contains(volltextSuchString2) ||
+                x.CREATOR!.Contains(volltextSuchString2))
+            .Where(x => (
+                x.TITLE!.Contains(" " + volltextSuchString3 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.StartsWith(volltextSuchString3 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+                x.TITLE!.EndsWith(" " + volltextSuchString3, StringComparison.CurrentCultureIgnoreCase)) ||
+                x.TITLE!.Contains(volltextSuchString3) ||
+                x.CREATOR!.Contains(volltextSuchString3))
+            .ToList();
+        }
+        else if (!string.IsNullOrEmpty(volltextSuchString1))
+        {
+            dataTmp = data
+           .Where(x => (
+               x.TITLE!.Contains(" " + volltextSuchString1 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+               x.TITLE!.StartsWith(volltextSuchString1 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+               x.TITLE!.EndsWith(" " + volltextSuchString1, StringComparison.CurrentCultureIgnoreCase)) ||
+               x.TITLE!.Contains(volltextSuchString1) ||
+               x.CREATOR!.Contains(volltextSuchString1))
+           .ToList();
+        }
+        else if (!string.IsNullOrEmpty(volltextSuchString2))
+        {
+            dataTmp = data
+          .Where(x => (
+              x.TITLE!.Contains(" " + volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+              x.TITLE!.StartsWith(volltextSuchString2 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+              x.TITLE!.EndsWith(" " + volltextSuchString2, StringComparison.CurrentCultureIgnoreCase)) ||
+              x.TITLE!.Contains(volltextSuchString2) ||
+              x.CREATOR!.Contains(volltextSuchString2))
+          .ToList();
+        }
+        else if (!string.IsNullOrEmpty(volltextSuchString3))
+        {
+            dataTmp = data
+           .Where(x => (
+               x.TITLE!.Contains(" " + volltextSuchString3 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+               x.TITLE!.StartsWith(volltextSuchString3 + " ", StringComparison.CurrentCultureIgnoreCase) ||
+               x.TITLE!.EndsWith(" " + volltextSuchString3, StringComparison.CurrentCultureIgnoreCase)) ||
+               x.TITLE!.Contains(volltextSuchString3) ||
+               x.CREATOR!.Contains(volltextSuchString3))
+           .ToList();
+        }
+        else
+        {
+            dataTmp = data;
+        }
+
+        if(!string.IsNullOrEmpty(volltextSuchStringOrt))
+        {
+            return dataTmp.Where(x => (x.ORT!.Contains(volltextSuchStringOrt))).ToList();
+        }
+        return dataTmp;
+    }
+
+    private async Task OnSearchShow()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await modalRef!.Show();
+        await Task.Delay(1);
+        var tmpList = OnSearch();
+        while (skipData >= tmpList.Count)
+            skipData -= 100;
+        if (skipData < 0)
+            skipData = 0;
+        resultCounter = tmpList.Count;
+        dataShow = tmpList.Skip(skipData).Take(100).ToList();
+        loadingModal = false;
+    }
+    ///________________________________________________________________________________________________
+
+
+
+    //// <summary>
+    ///
+    /// Methode zur Bereinigung der Daten nach dem Schließen des Modals
+    ///
+    /// </summary>
+    public void Delete()
+    {
+        selectedReleaseStartOld = 0;
+        selectedReleaseEndOld = 0;
+        sachgruppenMitFachrichtungenOld.Clear();
+        skipData = 0;
+        data.Clear();
+        dataShow!.Clear();
+        creatorSortierung = null;
+        ortSortierung = null;
+        titleSortierung = null;
+        yearSortierung = null;
+        checkedSortierung = null;
+        guids.Clear();
+        hinzufuegenXLSX = true;
+    }
+    ///________________________________________________________________________________________________
+
+
+    //// <summary>
+    ///
+    /// Methoden für den TabellenHeader (Sortierung der Angezeigten Daten)
+    ///
+    /// OnSortierungXXX_Changed-Methoden verändern dabei den Status der jeweiligen Suchfilterung und setzen den Status von anderen Filtern zurück (Bis auf Favoriten und Gender)
+    /// OnSortierungXXX_NotChanged-Methoden verändern dabei den Status der jeweiligen Suchfilterung NICHT
+    ///
+    /// </summary>
+    private async Task OnSortierungYEAR_Changed()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        skipData = 0;
+        creatorSortierung = null;
+        titleSortierung = null;
+        ortSortierung = null;
+
+        if (yearSortierung == null)
+            yearSortierung = true;
+        else if (yearSortierung == true)
+            yearSortierung = false;
+        else
+            yearSortierung = null;
+
+        switch (yearSortierung)
+        {
+            case null:
+                break;
+            case false:
+                data = data.OrderByDescending(x => x.ERSCHEINUNGSJAHR).ToList();
+                break;
+            case true:
+                data = data.OrderBy(x => x.ERSCHEINUNGSJAHR).ToList();
+                break;
+        }
+
+        if (checkedSortierung != null)
+            await OnSortierungCHECKED_NotChanged();
+
+        if (genderSortierung != null)
+            await OnSortierungGESCHLECHT_NotChanged();
+
+        await OnSearchShow();
+    }
+
+
+    private async Task OnSortierungORT_Changed()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        skipData = 0;
+        creatorSortierung = null;
+        titleSortierung = null;
+        yearSortierung = null;
+
+        if (ortSortierung == null)
+            ortSortierung = true;
+        else if (ortSortierung == true)
+            ortSortierung = false;
+        else
+            ortSortierung = null;
+
+        switch (ortSortierung)
+        {
+            case null:
+                break;
+            case false:
+                data = data.OrderByDescending(x => x.ORT).ToList();
+                break;
+            case true:
+                data = data.OrderBy(x => x.ORT).ToList();
+                break;
+        }
+
+        if (checkedSortierung != null)
+            await OnSortierungCHECKED_NotChanged();
+
+        if (genderSortierung != null)
+            await OnSortierungGESCHLECHT_NotChanged();
+
+        await OnSearchShow();
+    }
+
+
+    private async Task OnSortierungCREATOR_Changed()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        skipData = 0;
+        titleSortierung = null;
+        yearSortierung = null;
+        ortSortierung = null;
+
+        if (creatorSortierung == null)
+            creatorSortierung = true;
+        else if (creatorSortierung == true)
+            creatorSortierung = false;
+        else
+            creatorSortierung = null;
+
+        switch (creatorSortierung)
+        {
+            case null:
+                break;
+            case false:
+                data = data.OrderByDescending(x => x.CREATOR).ToList();
+                break;
+            case true:
+                data = data.OrderBy(x => x.CREATOR).ToList();
+                break;
+        }
+
+        if (checkedSortierung != null)
+            await OnSortierungCHECKED_NotChanged();
+
+        if (genderSortierung != null)
+            await OnSortierungGESCHLECHT_NotChanged();
+
+        await OnSearchShow();
+    }
+
+    private async Task OnSortierungTITLE_Changed()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        skipData = 0;
+        creatorSortierung = null;
+        yearSortierung = null;
+        ortSortierung = null;
+
+        if (titleSortierung == null)
+            titleSortierung = true;
+        else if (titleSortierung == true)
+            titleSortierung = false;
+        else
+            titleSortierung = null;
+
+        switch (titleSortierung)
+        {
+            case null:
+                break;
+            case false:
+                data = data.OrderByDescending(x => x.TITLE).ToList();
+                break;
+            case true:
+                data = data.OrderBy(x => x.TITLE).ToList();
+                break;
+        }
+
+        if (checkedSortierung != null)
+            await OnSortierungCHECKED_NotChanged();
+
+        if (genderSortierung != null)
+            await OnSortierungGESCHLECHT_NotChanged();
+
+        await OnSearchShow();
+    }
+
+    private async Task OnSortierungGESCHLECHT_Changed()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        skipData = 0;
+        creatorSortierung = null;
+        titleSortierung = null;
+        yearSortierung = null;
+        ortSortierung = null;
+
+        if (genderSortierung == null)
+            genderSortierung = "female";
+        else if (genderSortierung == "female")
+            genderSortierung = "male";
+        else if (genderSortierung == "male")
+            genderSortierung = "none";
+        else
+            genderSortierung = null;
+
+
+        var femaleList = data.Where(x => x.GESCHLECHT == "female");
+        var maleList = data.Where(x => x.GESCHLECHT == "male");
+        var noneList = data.Where(x => x.GESCHLECHT == "undefined" || x.GESCHLECHT == null);
+
+        switch (genderSortierung)
+        {
+            case null:
+                break;
+            case "female":
+                data = femaleList.Concat(maleList).Concat(noneList).ToList();
+                break;
+            case "male":
+                data = maleList.Concat(noneList).Concat(femaleList).ToList();
+                break;
+            case "none":
+                data = noneList.Concat(femaleList).Concat(maleList).ToList();
+                break;
+        }
+        await OnSearchShow();
+    }
+
+    private async Task OnSortierungCHECKED_Changed()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        skipData = 0;
+        creatorSortierung = null;
+        titleSortierung = null;
+        yearSortierung = null;
+        ortSortierung = null;
+
+        if (checkedSortierung == null)
+            checkedSortierung = true;
+        else if (checkedSortierung == true)
+            checkedSortierung = false;
+        else
+            checkedSortierung = null;
+
+
+        switch (checkedSortierung)
+        {
+            case null:
+                break;
+            case false:
+                data = data.OrderBy(x => x.CHECKED).ToList();
+                break;
+            case true:
+                data = data.OrderByDescending(x => x.CHECKED).ToList();
+                break;
+        }
+        await OnSearchShow();
+    }
+
+    private async Task OnSortierungCHECKED_NotChanged()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        switch (checkedSortierung)
+        {
+            case null:
+                break;
+            case false:
+                data = data.OrderBy(x => x.CHECKED).ToList();
+                break;
+            case true:
+                data = data.OrderByDescending(x => x.CHECKED).ToList();
+                break;
+        }
+        await OnSearchShow();
+    }
+
+    private async Task OnSortierungGESCHLECHT_NotChanged()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        var femaleList = data.Where(x => x.GESCHLECHT == "female");
+        var maleList = data.Where(x => x.GESCHLECHT == "male");
+        var noneList = data.Where(x => x.GESCHLECHT == null);
+
+        switch (genderSortierung)
+        {
+            case null:
+                break;
+            case "female":
+                data = femaleList.Concat(maleList).Concat(noneList).ToList();
+                break;
+            case "male":
+                data = maleList.Concat(noneList).Concat(femaleList).ToList();
+                break;
+            case "none":
+                data = noneList.Concat(femaleList).Concat(maleList).ToList();
+                break;
+        }
+        await OnSearchShow();
+    }
+    ///________________________________________________________________________________________________
+
+
+    //// <summary>
+    ///
+    /// Methoden für den Unteren Modalbereich (Button: Next, Previous, Remove Favorites)
+    ///
+    /// OnRemoveFavClicked um alle gesetzten Favoriten für die momentane Suche zu Entfernen
+    /// OnSearchNext/Previous um (max 100) Einträge der geladenen Daten vor oder zurückzuspringen
+    ///
+    /// </summary>
+    private void OnCheckedFavoritenChanged(DNB_Dataset item)
+    {
+        item.CHECKED = !item.CHECKED;
+        _db.UpdateFavoriten(item.DNB_IDN!, item.ERSCHEINUNGSJAHR!, item.CHECKED);
+    }
+
+
+    private async Task OnRemoveFavClicked()
+    {
+        loadingModal = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        var tmpList = OnSearch().Where(x => x.CHECKED);
+
+        foreach (var item in tmpList)
+        {
+            _db.UpdateFavoriten(item.DNB_IDN!, item.ERSCHEINUNGSJAHR!, false);
+        }
+
+        await LoadData();
+    }
+
+    private async Task OnSearchNext()
+    {
+        hinzufuegenXLSX = true;
+        skipData += 100;
+        await OnSearchShow();
+    }
+
+    private async Task OnSearchPrevious()
+    {
+        hinzufuegenXLSX = true;
+        skipData -= 100;
+        await OnSearchShow();
+    }
+    ///________________________________________________________________________________________________
+
+
+    /// <summary>
+    ///
+    /// Methoden, um bei ENTER die Suche zu triggern
+    ///
+    /// KeySearch um Suchfelder(Volltextsuche) ENTER Suche zu triggern
+    /// CallBack-Funktion für HauptPage um Loading etc. Zu triggern
+    ///
+    /// </summary>
+    private async Task keyEnter(KeyboardEventArgs e)
+    {
+        if (e.Code == "Enter" || e.Code == "NumpadEnter")
+        {
+            await LoadData();
+        }
+    }
+
+    private async Task keySearch(KeyboardEventArgs e)
+    {
+        if (e.Code == "Tab")
+        {
+            OnVollTextAdd();
+        }
+        else if (e.Code == "Enter" || e.Code == "NumpadEnter")
+        {
+            await LoadData();
+        }
+    }
+
+    private async Task keySearchAfterLoad(KeyboardEventArgs e)
+    {
+        if (e.Code == "Tab")
+        {
+            OnVollTextAdd();
+        }
+        else if (e.Code == "Enter" || e.Code == "NumpadEnter")
+        {
+            await OnSearchShow();
+        }
+    }
+    ///________________________________________________________________________________________________
+
+
+    /// <summary>
+    /// Methode um in Modal angezeigten Daten (Max 100) in Excel zu speichern
+    /// </summary>
+    private void generateExcel()
+    {
+        try
+        {
+            var book = new ExcelFile();
+            var sheet = book.Worksheets.Add("PROSPER");
+
+            CellStyle style = sheet.Rows[0].Style;
+            style.Font.Weight = ExcelFont.BoldWeight;
+            style.Font.Color = SpreadsheetColor.FromArgb(255,255,255);
+
+            style.FillPattern.SetPattern(FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(29, 33, 46), GemBox.Spreadsheet.SpreadsheetColor.FromArgb(29, 33, 46));
+
+            sheet.Columns[0].SetWidth(150, LengthUnit.Pixel);
+            sheet.Columns[1].SetWidth(dataShow.OrderByDescending(s => s.CREATOR.Length).First().CREATOR.Length + 5, LengthUnit.CharacterWidth);
+            sheet.Columns[2].SetWidth(dataShow.OrderByDescending(s => s.TITLE.Length).First().TITLE.Length, LengthUnit.CharacterWidth);
+            sheet.Columns[4].SetWidth(500, LengthUnit.Pixel);
+            sheet.Columns[5].SetWidth(dataShow.OrderByDescending(s => s.LINK.Length).First().LINK.Length, LengthUnit.CharacterWidth);
+            sheet.Cells["A1"].Value = "GENDER";
+            sheet.Cells["B1"].Value = "CREATOR";
+            sheet.Cells["C1"].Value = "TITLE";
+            sheet.Cells["D1"].Value = "ORT";
+            sheet.Cells["E1"].Value = "ERSCHEINUNGSJAHR";
+            sheet.Cells["F1"].Value = "SACHGRUPPE";
+            sheet.Cells["G1"].Value = "LINK";
+            for (int r = 1; r <= dataShow.Count; r++)
+            {
+                DNB_Dataset item = dataShow[r - 1];
+                var sgtShow = "";
+                var linkShow = "";
+
+                @if (!string.IsNullOrEmpty(item.LINK))
+                {
+                    linkShow = item.LINK;
+                }
+                else
+                {
+                    linkShow = "https://d-nb.info/" + item.DNB_IDN;
+                }
+
+                @if (!string.IsNullOrEmpty(item.SACHGRUPPE))
+                {
+                    @foreach (var sachgruppe in item.SACHGRUPPE!.Split('|').ToList())
+                    {
+                        @foreach (var fachrichtung in fachrichtungenListe)
+                        {
+
+                            if (fachrichtung.SachgruppeList.Exists(x => x.SachgruppenBezeichnung == sachgruppe))
+                            {
+                                sgtShow += fachrichtung.FachrichtungsName + " | ";
+                            }
+
+                        }
+                    }
+                }
+
+                sheet.Cells[r, 0].Value = item.GESCHLECHT;
+                sheet.Cells[r, 1].Value = item.CREATOR;
+                sheet.Cells[r, 2].Value = item.TITLE;
+                sheet.Cells[r, 3].Value = item.ORT;
+                sheet.Cells[r, 4].Value = item.ERSCHEINUNGSJAHR != null ? int.Parse(item.ERSCHEINUNGSJAHR) : "";
+                sheet.Cells[r, 5].Value = sgtShow;
+                sheet.Cells[r, 6].Value = linkShow;
+
+                if(item.CHECKED)
+                {
+                    sheet.Cells[r, 0].Style.FillPattern.SetPattern(
+                    FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(254, 216, 177),
+                    GemBox.Spreadsheet.SpreadsheetColor.FromArgb(0, 0, 0));
+                    sheet.Cells[r, 1].Style.FillPattern.SetPattern(
+                    FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(254, 216, 177),
+                    GemBox.Spreadsheet.SpreadsheetColor.FromArgb(0, 0, 0));
+                    sheet.Cells[r, 2].Style.FillPattern.SetPattern(
+                    FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(254, 216, 177),
+                    GemBox.Spreadsheet.SpreadsheetColor.FromArgb(0, 0, 0));
+                    sheet.Cells[r, 3].Style.FillPattern.SetPattern(
+                    FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(254, 216, 177),
+                    GemBox.Spreadsheet.SpreadsheetColor.FromArgb(0, 0, 0));
+                    sheet.Cells[r, 4].Style.FillPattern.SetPattern(
+                    FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(254, 216, 177),
+                    GemBox.Spreadsheet.SpreadsheetColor.FromArgb(0, 0, 0));
+                    sheet.Cells[r, 5].Style.FillPattern.SetPattern(
+                    FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(254, 216, 177),
+                    GemBox.Spreadsheet.SpreadsheetColor.FromArgb(0, 0, 0));
+                    sheet.Cells[r, 6].Style.FillPattern.SetPattern(
+                    FillPatternStyle.Solid, GemBox.Spreadsheet.SpreadsheetColor.FromArgb(254, 216, 177),
+                    GemBox.Spreadsheet.SpreadsheetColor.FromArgb(0, 0, 0));
+                }
+            }
+
+            SaveOptions options = SaveOptions.XlsxDefault;
+
+            Guid guid = Guid.NewGuid();
+            string xlsxPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot", "Data", "prosper_" + guid + ".xlsx");
+
+            book.Save(xlsxPath);
+            guids.Add(guid.ToString());
+            hinzufuegenXLSX = false;
+            StateHasChanged();
+        }
+        catch
+        {
+
+        }
+    }
+
+
+
+
+
+    private void generateZip()
+    {
+        if (guids.Count != 0)
+        {
+            try
+            {
+                Guid guidzip = Guid.NewGuid();
+                string zipPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot", "Data", "Archive_" + guidzip.ToString() + ".zip");
+                using (File.Create(zipPath)) ;
+
+                int counter = 1;
+                foreach (var guidxlsx in guids)
+                {
+                    string xlsxPath = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "wwwroot", "Data", "prosper_" + guidxlsx + ".xlsx");
+
+                    using (FileStream zipToOpen = new FileStream(zipPath, FileMode.Open))
+                    {
+                        using (ZipArchive archive = new ZipArchive(zipToOpen, ZipArchiveMode.Update))
+                        {
+                            try
+                            {
+                                FileInfo xlsxfile = new FileInfo(xlsxPath);
+                                archive.CreateEntryFromFile(xlsxfile.FullName, "ExportXLSX_" + counter + ".xlsx");
+                                counter++;
+                                xlsxfile.Delete();
+                            }
+                            catch { }
+                        }
+                    }
+                }
+                hinzufuegenXLSX = true;
+                NavigateToDownload(guidzip);
+                StateHasChanged();
+            }
+            catch { }
+        }
+    }
+
+
+    private void NavigateToDownload(Guid guid)
+    {
+        JSRuntime.InvokeAsync<object>("open", "download/" + guid.ToString(), "_blank");
+        guids.Clear();
+    }
+
+}

@@ -1,0 +1,62 @@
+﻿@page "/"
+@inject NavigationManager NavManager
+
+<Jumbotron Style="background-color:#334152; border-radius:30px; color:white" Margin="Margin.Is4.FromBottom">
+    <JumbotronTitle Size="JumbotronTitleSize.Is4" Style="font-weight:bold">PROSPER-DB</JumbotronTitle>
+    <Divider></Divider>
+</Jumbotron>
+
+<Fields >
+    <Field ColumnSize="ColumnSize.Is6" Flex="Flex.JustifyContent.Center">
+        <button class="button-load" @onclick="@(()=>NavigateToSearch())">
+            <div class="txt">
+            <Figure Size="FigureSize.Is256x256">
+                <FigureImage Source="@imgSearch" @onmouseover="@(()=>OnFocus("Search"))" @onmouseout="@(()=>OnLostFocus("Search"))" AlternateText="Search" Rounded />
+                    <FigureCaption TextColor="TextColor.White" Style="font-family:swis721, Helvetica, Arial, sans-serif;">Suche der Datenbank ausführen.</FigureCaption>
+            </Figure>
+            </div>
+        </button>
+    </Field>
+    <Field ColumnSize="ColumnSize.Is6" Flex="Flex.JustifyContent.Center">
+        <button class="button-load" @onclick="@(()=>NavigateToImportDB())">
+            <div class="txt">
+            <Figure Size="FigureSize.Is256x256">
+                <FigureImage Source="@imgUpload" @onmouseover="@(()=>OnFocus("Upload"))" @onmouseout="@(()=>OnLostFocus("Upload"))" AlternateText="Upload" Rounded />
+                    <FigureCaption TextColor="TextColor.White" Style="swis721, Helvetica, Arial, sans-serif;">Updaten der Datenbank.</FigureCaption>
+            </Figure>
+            </div>
+        </button>
+    </Field>
+</Fields>
+
+
+
+@code {
+    string imgSearch = "/Assets/Search.png";
+    string imgUpload = "/Assets/Upload.png";
+
+    private void OnFocus(string type)
+    {
+        if(type == "Search")
+            imgSearch = "/Assets/Search.gif";
+        else if(type == "Upload")
+            imgUpload = "/Assets/Upload.gif";
+    }
+    private void OnLostFocus(string type)
+    {
+        if(type == "Search")
+            imgSearch = "/Assets/Search.png";
+        else if (type == "Upload")
+            imgUpload = "/Assets/Upload.png";
+    }
+
+    private void NavigateToSearch() {
+        NavManager.NavigateTo("/search");
+    }
+
+    private void NavigateToImportDB()
+    {
+        NavManager.NavigateTo("/importDB");
+    }
+
+}

@@ -1,0 +1,259 @@
+﻿@page "/importDB"
+
+@using ClassLibrary.Processor;
+@using ClassLibrary.Model;
+@using ClassLibrary;
+@using System.Diagnostics;
+
+@inject ISqlExecutor _db
+@inject IDNBExecutor _dnb
+
+
+<Layout>
+    @if (loading)
+    {
+        <LoadingComponent></LoadingComponent>
+    }
+    else
+    {
+        <LayoutContent>
+            <Jumbotron Style="background-color:#334152; border-radius:30px; color:white" Margin="Margin.Is4.FromBottom">
+                <JumbotronTitle Size="JumbotronTitleSize.Is4" Style="font-weight:bold">PROSPER-DB</JumbotronTitle>
+                <Divider></Divider>
+            </Jumbotron>
+
+            <Fields>
+                <Field Style="margin-right:1%; height:52px" Flex="Flex.JustifyContent.End">
+                    <button style="margin" class="button-status" @onclick="@ShowModal">  <Icon Name="IconName.Info" /> Status der Update-Historie  </button>
+                    
+                </Field>
+            </Fields>
+            <Card Style="padding: 20px;border-radius:30px">
+                <CardHeader Style="background-color:#334152; color:white; font-weight:bold; border-radius:30px">Suche</CardHeader>
+                <CardBody>
+
+                    <Field Horizontal>
+                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop">Erscheinungsjahre</FieldLabel>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                            <NumericPicker @onkeydown="keyEnter" @bind-Value="@selectedReleaseStart" Min="@releaseStart" Max="@releaseEnd" />
+                        </FieldBody>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is4.OnDesktop">
+                            <NumericPicker @onkeydown="keyEnter" @bind-Value="@selectedReleaseEnd" Min="@releaseStart" Max="@releaseEnd" />
+                        </FieldBody>
+                    </Field>
+                    <Field Horizontal>
+                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop"><a href="https://genderapi.io/" target="_blank" style="color:black">Optionaler Key für Gender-Api.com</a></FieldLabel>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                            <TextEdit @bind-Value="@genderApiKey" />
+                        </FieldBody>
+                    </Field>
+                    <Field Horizontal>
+                        <FieldLabel ColumnSize="ColumnSize.IsFull.OnTablet.Is2.OnDesktop"><a href="https://gender-api.com/" target="_blank" style="color:black">Optionaler Key für Genderize.io</a></FieldLabel>
+                        <FieldBody ColumnSize="ColumnSize.IsFull.OnTablet.Is5.OnDesktop">
+                            <TextEdit @bind-Value="@genderizeKey" />
+                        </FieldBody>
+                    </Field>
+
+                    @if (modalRef is not null)
+                    {
+                        <Modal @ref="modalRef">
+                            <ModalContent Centered Scrollable Overflow="Overflow.Auto" Style="border-radius:30px;">
+                                <ModalHeader>
+                                    <ModalTitle>Update Historie</ModalTitle>
+                                    <CloseButton />
+                                </ModalHeader>
+                                <ModalBody>
+                                    <Table Hoverable Style="border-radius:30px">
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHeaderCell>
+                                                    Tabellenname
+                                                </TableHeaderCell>
+                                                <TableHeaderCell>
+                                                    Updatedatum
+                                                </TableHeaderCell>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            @foreach (var item in updateHistory)
+                                            {
+                                                <TableRow>
+                                                    <TableHeaderCell>
+                                                        @item.TABLE_NAME
+                                                    </TableHeaderCell>
+                                                    <TableHeaderCell>
+                                                        @item.DATUM
+                                                    </TableHeaderCell>
+                                                </TableRow>
+                                            }
+                                        </TableBody>
+                                    </Table>
+                                </ModalBody>
+                            </ModalContent>
+                        </Modal>
+                    }
+
+
+                </CardBody>
+                <Fields>
+                    <Field Style="margin-bottom:3%; margin-right:1%; height:52px; width:52px" Flex="Flex.JustifyContent.End">
+                        <button class="button-load" @onclick="@ShowConfirmMessage"><Icon Name="IconName.Check" /></button>
+                        @*<Button Size="Size.Medium" Style="border-radius:50%; box-shadow:0 8px 16px 0 rgba(0,0,0,0.2), 0 6px 20px 0 rgba(0,0,0,0.19)" Color="Color.Primary" Clicked="@(args => OnSearchShow())"><Icon Name="IconName.Search" /></Button>
+                    *@
+                    </Field>
+                </Fields>
+            </Card>
+            @if (numRecords != 0 && updateTriggered)
+            {
+                <br />
+                <Alert @bind-Visible="@alertWarning" Style="border-radius:30px; background-color:darkred; color:  #fff">
+                    <Heading Size="HeadingSize.Is4" Style="color:#fff">
+                        ACHTUNG!
+                        <CloseButton />
+                    </Heading>
+                    <Paragraph>
+                        Bitte schließen Sie während des Vorgangs diese Seite nicht!
+                    </Paragraph>
+                </Alert>
+
+
+                <AlertMessage Flex="Flex.JustifyContent.Center" Style="margin:50px;color:#334152">
+                    Momentanes Import-Jahr: @(currYear + @" / " + selectedReleaseEnd)
+                </AlertMessage>
+                <Progress Value="@position" Min="0" Max="@numRecords" Animated Striped />
+                <Field Flex="Flex.JustifyContent.End">
+                    @(position + " / " +numRecords)
+                </Field>
+            } else
+            {
+                <br />
+                <Fields>
+                    <Field Flex="Flex.JustifyContent.Center">
+                        <Alert @bind-Visible="@alertFinish" Style="border-radius:30px; background-color:#009b91; color:  #fff">
+                            <Heading Size="HeadingSize.Is4" Style="color:#fff">
+                                Ergebnis des Imports
+                                <CloseButton />
+                            </Heading>
+                            <Paragraph>
+                                Update für @(selectedReleaseStart + "-" + selectedReleaseEnd) durchgeführt.
+                            </Paragraph>
+                            <Paragraph>
+                                @gesamtDatensätzeDNB wurden aus dem Bestand der Deutschen Nationalbibliothek (DNB) geholt. <br> @gesamtDatensätzeSQL wurden in die Datenbank geschrieben.
+                            </Paragraph>
+                        </Alert>
+                    </Field>
+                </Fields>
+            }
+        </LayoutContent>
+    }
+</Layout>
+
+
+@code {
+    [Inject] IMessageService? MessageService { get; set; }
+    private Modal? modalRef = new Modal();
+    private List<UpdateHistory_Model>? updateHistory = new List<UpdateHistory_Model>();
+    private bool alertFinish = false;
+    private bool alertWarning = false;
+
+    private int gesamtDatensätzeDNB = 0;
+    private int gesamtDatensätzeSQL = 0;
+    private bool updateTriggered = false;
+    private bool loading = false;
+    private int releaseStart = 0;
+    private int releaseEnd = 0;
+    private int currYear = 0;
+    private int numRecords = 0;
+    private int position = 0;
+    private string? genderApiKey;
+    private string? genderizeKey;
+
+    private int selectedReleaseStart;
+    private int selectedReleaseEnd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        loading = true;
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+
+        releaseStart = 2000;
+        releaseEnd = DateTime.Now.Year + 2;
+        selectedReleaseStart = releaseStart;
+        selectedReleaseEnd = DateTime.Now.Year;
+        loading = false;
+    }
+
+
+    //// <summary>
+    ///
+    /// Methode, um bei Import zu triggern die Anzahl der Results zu aktualisieren, sowie die momentane Position
+    ///
+    /// </summary>
+    private async Task ImportData()
+    {
+        alertWarning = true;
+        alertFinish = false;
+        gesamtDatensätzeDNB = 0;
+        gesamtDatensätzeSQL = 0;
+        for (int year = selectedReleaseStart; year <= selectedReleaseEnd; year++)
+        {
+            _db.CreateDB(year);
+            currYear = year;
+            numRecords = _dnb.get_numberOfRecords(year);
+            updateTriggered = true;
+            while (numRecords > position)
+            {
+                await InvokeAsync(StateHasChanged);
+                await Task.Delay(1);
+                position = _dnb.processingRequest(numRecords, position, year, false, genderApiKey!, genderizeKey!);
+            }
+            gesamtDatensätzeDNB += position;
+            gesamtDatensätzeSQL += _db.GetDatasetCount(year);
+
+            _db.SetUpdateHistory(year);
+            position = 0;
+            numRecords = 0;
+        }
+        alertFinish = true;
+        alertWarning = false;
+        updateTriggered = false;
+        await ShowSuccessMessage();
+    }
+
+    Task ShowSuccessMessage()
+    {
+        return MessageService!.Success("Der Import in die Datenbank war erfolgreich. <br> [Doppelte Datensätze wurden zusammengefügt (siehe Ergebnis)]", "Update erfolgreich");
+    }
+
+    async Task ShowConfirmMessage()
+    {
+        if (await MessageService!.Confirm("Sie sind gerade dabei ein Update auf der Datenbank vorzunehmen. Möchten Sie fortfahren?", "Datenbestand updaten?"))
+        {
+            await ImportData();
+        }
+    }
+
+    private Task ShowModal()
+    {
+        updateHistory = _db.GetUpdateHistory();
+        return modalRef!.Show();
+    }
+
+    ///________________________________________________________________________________________________
+
+
+    //// <summary>
+    ///
+    /// Methode, um bei ENTER die Suche zu triggern
+    ///
+    /// </summary>
+    private async Task keyEnter(KeyboardEventArgs e)
+    {
+        if (e.Code == "Enter" || e.Code == "NumpadEnter")
+        {
+            await ImportData();
+        }
+    }
+    ///________________________________________________________________________________________________
+}
