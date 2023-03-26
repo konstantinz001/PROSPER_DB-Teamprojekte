@@ -51,4 +51,13 @@ Das Studentische Team des Bacherlorstudiengangs Angewandte Informatik (WS 2022/2
 befasste sich als erste Gruppe mit der Recherche als auch der Umsetzung und dem Aufbau 
 für die eigens HTWG geeignete Plattform.
 
+Projektteam:
+<ul>
+<li>Konstantin Zabaznov</li>
+<li>Muecahit Degirmenci</li>
+<li>Stefan Grad</li>
+<li>Selma Sahuric</li>
+</ul>
+
 [2023]
+
